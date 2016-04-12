@@ -9,12 +9,15 @@ import tornado.web
 import tornado.websocket
 import string
 import random
+import time
 
 from tornado.options import define, options
 
 define("port", default=8888, help="run on the given port", type=int)
 
 clients = dict()
+
+current_milli_time = lambda: int(round(time.time() * 1000))
 
 
 def random_generator(size=6, chars=string.ascii_uppercase + string.digits):
@@ -86,10 +89,14 @@ class MessagesHandler(tornado.web.RequestHandler):
         self.finish()
 
 
+class ClientStat:
+    def __init__(self, obj):
+        self.start_time = current_milli_time()
+        self.msg_count = 0
+        self.object = obj
+
+
 class ChatSocketHandler(tornado.websocket.WebSocketHandler):
-    waiters = set()
-    cache = []
-    cache_size = 200
 
     def get_compression_options(self):
         # Non-None enables compression with default options.
@@ -99,15 +106,17 @@ class ChatSocketHandler(tornado.websocket.WebSocketHandler):
         print("Web socket opened")
         self.id = random_generator()
         self.stream.set_nodelay(True)
-        clients[self.id] = {"id": self.id, "object": self}
-        ChatSocketHandler.waiters.add(self)
+
+        clients[self.id] = ClientStat(self)
         self.write_message("hello")
 
     def on_close(self):
         print("Web socket closed")
-        ChatSocketHandler.waiters.remove(self)
+        del clients[self.id]
 
     def on_message(self, message):
+        clients[self.id].msg_count += 1
+
         logging.info("got message %r", message)
         msg = message.split()
         if len(msg) < 2:
@@ -138,8 +147,20 @@ class MainHandler(tornado.web.RequestHandler):
 
 class ConnectionsHandler(tornado.web.RequestHandler):
     def get(self):
-        output = str(len(clients))
-        self.write("Connections : " + output)
+        self.write("[")
+        first_entry = True
+        for c in clients.values():
+            if not first_entry:
+                self.write(",")
+            self.write('{"uptime_ms":')
+            etime = current_milli_time()
+            etime = etime - c.start_time
+            self.write(str(etime))
+            self.write(', "messages":')
+            self.write(str(c.msg_count))
+            self.write('}')
+            first_entry = False
+        self.write("]")
         self.finish()
 
 
