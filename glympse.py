@@ -17,7 +17,8 @@ class NewMessageHandler(tornado.web.RequestHandler):
         msg = self.get_argument('msg')
 
         # Async insert; callback is executed when insert completes
-        self.settings['db'].messages.insert(
+        db = self.settings['db']['glympse_web_socket-clacina']
+        db.glKeyStore.insert(
             {'msg': msg},
             callback=self._on_response)
 
@@ -41,7 +42,7 @@ class MessagesHandler(tornado.web.RequestHandler):
         if error:
             raise tornado.web.HTTPError(500, error)
         elif message:
-            self.write('<li>%s</li>' % message['test'])
+            self.write('<li>%s</li>' % message['msg'])
         else:
             # Iteration complete
             self.write('</ul>')
