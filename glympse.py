@@ -1,5 +1,7 @@
 import tornado.web, tornado.ioloop
+from tornado import gen
 import motor
+
 
 class NewMessageHandler(tornado.web.RequestHandler):
     def get(self):
@@ -12,41 +14,36 @@ class NewMessageHandler(tornado.web.RequestHandler):
 
     # Method exits before the HTTP request completes, thus "asynchronous"
     @tornado.web.asynchronous
+    @gen.coroutine
     def post(self):
         """Insert a message."""
         msg = self.get_argument('msg')
-
-        # Async insert; callback is executed when insert completes
         db = self.settings['db']['glympse_web_socket-clacina']
-        db.glKeyStore.insert(
-            {'msg': msg},
-            callback=self._on_response)
 
-    def _on_response(self, result, error):
-        if error:
-            raise tornado.web.HTTPError(500, error)
-        else:
-            self.redirect('/')
+        # insert() returns a Future. Yield the Future to get the result.
+        result = yield db.glKeyStore.insert({'msg': msg})
+
+        # Success
+        self.redirect('/')
 
 
 class MessagesHandler(tornado.web.RequestHandler):
     @tornado.web.asynchronous
+    @gen.coroutine
     def get(self):
         """Display all messages."""
         self.write('<a href="/compose">Compose a message</a><br>')
         self.write('<ul>')
         db = self.settings['db']['glympse_web_socket-clacina']
-        db.glKeyStore.find().sort([('_id', -1)]).each(self._got_message)
-
-    def _got_message(self, message, error):
-        if error:
-            raise tornado.web.HTTPError(500, error)
-        elif message:
+        cursor = db.glKeyStore.find().sort([('_id', -1)])
+        while (yield cursor.fetch_next):
+            message = cursor.next_object()
             self.write('<li>%s</li>' % message['msg'])
-        else:
-            # Iteration complete
-            self.write('</ul>')
-            self.finish()
+
+        # Iteration complete
+        self.write('</ul>')
+        self.finish()
+
 
 db = motor.motor_tornado.MotorClient("mongodb://clacina:ptYpRKAqNvK7@ds023000.mlab.com:23000/glympse_web_socket-clacina")
 
