@@ -23,9 +23,6 @@ current_milli_time = lambda: int(round(time.time() * 1000))
 def random_generator(size=6, chars=string.ascii_uppercase + string.digits):
     return ''.join(random.choice(chars) for x in range(size))
 
-db = motor.motor_tornado.MotorClient(
-    "mongodb://clacina:ptYpRKAqNvK7@ds023000.mlab.com:23000/glympse_web_socket-clacina")
-
 
 class Application(tornado.web.Application):
     def __init__(self):
@@ -123,6 +120,13 @@ class ChatSocketHandler(tornado.websocket.WebSocketHandler):
                 key = " ".join(msg)
                 self.write_message("Looking for " + key)
 
+                self.find_key(key)
+                # if data is not None:
+                #     record = yield data
+                #     self.write_message(record['value'])
+                # else:
+                #     self.write_message('null')
+                print("done")
             elif msg[0].lower() == 'set':
                 print("Set command")
             else:
@@ -135,6 +139,15 @@ class ChatSocketHandler(tornado.websocket.WebSocketHandler):
     def select_subprotocol(self, subprotocols):
         for l in subprotocols:
             print(l)
+
+    @gen.coroutine
+    def find_key(self, key):
+        db = self.settings['db']['glympse_web_socket-clacina']
+        doc = yield db.glKeyStore.find_one({"key": key})
+        if doc is not None:
+            self.write_message(doc['value'])
+        else:
+            self.write_message("null")
 
 
 class MainHandler(tornado.web.RequestHandler):
@@ -162,6 +175,8 @@ class ConnectionsHandler(tornado.web.RequestHandler):
         self.write("]")
         self.finish()
 
+db = motor.motor_tornado.MotorClient(
+    "mongodb://clacina:ptYpRKAqNvK7@ds023000.mlab.com:23000/glympse_web_socket-clacina")
 
 application = tornado.web.Application(
     [
