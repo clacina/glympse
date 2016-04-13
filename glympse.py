@@ -23,9 +23,8 @@ current_milli_time = lambda: int(round(time.time() * 1000))
 def random_generator(size=6, chars=string.ascii_uppercase + string.digits):
     return ''.join(random.choice(chars) for x in range(size))
 
-
 db = motor.motor_tornado.MotorClient(
-    "mongodb://clacina:ptYpRKAqNvK7@ds023000.mlab.com:23000/glympse_web_socket-clacina"),
+    "mongodb://clacina:ptYpRKAqNvK7@ds023000.mlab.com:23000/glympse_web_socket-clacina")
 
 
 class Application(tornado.web.Application):
@@ -40,10 +39,9 @@ class Application(tornado.web.Application):
         )
         tornado.web.Application.__init__(self, handlers, **settings)
 
-
+"""
 class NewMessageHandler(tornado.web.RequestHandler):
     def get(self):
-        """Show a 'compose message' form."""
         self.write('''
         <form method="post">
             <input type="text" name="msg">
@@ -54,7 +52,6 @@ class NewMessageHandler(tornado.web.RequestHandler):
     @tornado.web.asynchronous
     @gen.coroutine
     def post(self):
-        """Insert a message."""
         msg = self.get_argument('msg')
         db = self.settings['db']['glympse_web_socket-clacina']
 
@@ -69,7 +66,6 @@ class MessagesHandler(tornado.web.RequestHandler):
     @tornado.web.asynchronous
     @gen.coroutine
     def get(self):
-        """Display all messages."""
         self.write('<a href="/compose">Compose a message</a><br>')
         self.write('<ul>')
         db = self.settings['db']['glympse_web_socket-clacina']
@@ -87,7 +83,7 @@ class MessagesHandler(tornado.web.RequestHandler):
     def connect(self):
         self.write("hello")
         self.finish()
-
+"""
 
 class ClientStat:
     def __init__(self, obj):
@@ -123,11 +119,14 @@ class ChatSocketHandler(tornado.websocket.WebSocketHandler):
             self.write_error("Invalid Command")
         else:
             if msg[0].lower() == 'get':
-                print("Get command")
+                del msg[0]
+                key = " ".join(msg)
+                self.write_message("Looking for " + key)
+
             elif msg[0].lower() == 'set':
                 print("Set command")
             else:
-                output = "Unknown Command " + msg[0] + "}"
+                output = "Unknown Command [" + msg[0] + "]"
                 self.write_message(output)
 
     def check_origin(self, origin):
@@ -162,9 +161,6 @@ class ConnectionsHandler(tornado.web.RequestHandler):
             first_entry = False
         self.write("]")
         self.finish()
-
-
-db = motor.motor_tornado.MotorClient("mongodb://clacina:ptYpRKAqNvK7@ds023000.mlab.com:23000/glympse_web_socket-clacina")
 
 
 application = tornado.web.Application(
