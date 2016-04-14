@@ -1,15 +1,52 @@
-import tornado.web, tornado.ioloop
-from tornado import gen
-import motor
+#
+# CONFIDENTIAL
+# __________________
+#
+# [2016] Chris J Lacina
+# clacina@mindspring.com
+# All Rights Reserved.
+#
+# This is free and unencumbered software released into the public domain.
+#
+# Anyone is free to copy, modify, publish, use, compile, sell, or
+# distribute this software, either in source code form or as a compiled
+# binary, for any purpose, commercial or non-commercial, and by any
+# means.
+#
+# In jurisdictions that recognize copyright laws, the author or authors
+# of this software dedicate any and all copyright interest in the
+# software to the public domain. We make this dedication for the benefit
+# of the public at large and to the detriment of our heirs and
+# successors. We intend this dedication to be an overt act of
+# relinquishment in perpetuity of all present and future rights to this
+# software under copyright law.
+#
+# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+# EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+# MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.
+# IN NO EVENT SHALL THE AUTHORS BE LIABLE FOR ANY CLAIM, DAMAGES OR
+# OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE,
+# ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR
+# OTHER DEALINGS IN THE SOFTWARE.
+#
+"""
+TO DO -
+Load database from options
+"""
+
+
 import logging
+import motor
 import tornado.escape
 import tornado.ioloop
 import tornado.options
 import tornado.web
 import tornado.websocket
-import string
 import random
+import string
 import time
+
+from tornado import gen
 
 from tornado.options import define, options
 
@@ -36,51 +73,6 @@ class Application(tornado.web.Application):
         )
         tornado.web.Application.__init__(self, handlers, **settings)
 
-"""
-class NewMessageHandler(tornado.web.RequestHandler):
-    def get(self):
-        self.write('''
-        <form method="post">
-            <input type="text" name="msg">
-            <input type="submit">
-        </form>''')
-
-    # Method exits before the HTTP request completes, thus "asynchronous"
-    @tornado.web.asynchronous
-    @gen.coroutine
-    def post(self):
-        msg = self.get_argument('msg')
-        db = self.settings['db']['glympse_web_socket-clacina']
-
-        # insert() returns a Future. Yield the Future to get the result.
-        result = yield db.glKeyStore.insert({'msg': msg})
-
-        # Success
-        self.redirect('/')
-
-
-class MessagesHandler(tornado.web.RequestHandler):
-    @tornado.web.asynchronous
-    @gen.coroutine
-    def get(self):
-        self.write('<a href="/compose">Compose a message</a><br>')
-        self.write('<ul>')
-        db = self.settings['db']['glympse_web_socket-clacina']
-        cursor = db.glKeyStore.find().sort([('_id', -1)])
-        while (yield cursor.fetch_next):
-            message = cursor.next_object()
-            self.write('<li>%s</li>' % message['msg'])
-
-        # Iteration complete
-        self.write('</ul>')
-        self.finish()
-
-    @tornado.web.asynchronous
-    @gen.coroutine
-    def connect(self):
-        self.write("hello")
-        self.finish()
-"""
 
 class ClientStat:
     def __init__(self, obj):
@@ -96,7 +88,7 @@ class ChatSocketHandler(tornado.websocket.WebSocketHandler):
         return {}
 
     def open(self):
-        print("Web socket opened")
+        logging.info("/connect")
         self.id = random_generator()
         self.stream.set_nodelay(True)
 
@@ -104,41 +96,32 @@ class ChatSocketHandler(tornado.websocket.WebSocketHandler):
         self.write_message("hello")
 
     def on_close(self):
-        print("Web socket closed")
+        self.write_message("disconnected")
+        logging.info("disconnected")
         del clients[self.id]
 
     def on_message(self, message):
-        clients[self.id].msg_count += 1
-
         logging.info("got message %r", message)
         msg = message.split()
         if len(msg) < 2:
-            self.write_error("Invalid Command")
+            self.write_message("Invalid Command")
         else:
             if msg[0].lower() == 'get':
                 del msg[0]
                 key = " ".join(msg)
-                self.write_message("Looking for " + key)
-
                 self.find_key(key)
-                # if data is not None:
-                #     record = yield data
-                #     self.write_message(record['value'])
-                # else:
-                #     self.write_message('null')
-                print("done")
             elif msg[0].lower() == 'set':
-                print("Set command")
+                del msg[0]      # delete 'set'
+                key = msg[0]    # pull 'key'
+                del msg[0]      # delete 'key'
+                value = " ".join(msg)     # join 'value'
+                self.insert_key_value_pair(key, value)
             else:
                 output = "Unknown Command [" + msg[0] + "]"
                 self.write_message(output)
 
     def check_origin(self, origin):
-        return True
-
-    def select_subprotocol(self, subprotocols):
-        for l in subprotocols:
-            print(l)
+        return True     # allow all origins
 
     @gen.coroutine
     def find_key(self, key):
@@ -146,8 +129,26 @@ class ChatSocketHandler(tornado.websocket.WebSocketHandler):
         doc = yield db.glKeyStore.find_one({"key": key})
         if doc is not None:
             self.write_message(doc['value'])
+            clients[self.id].msg_count += 1
         else:
             self.write_message("null")
+
+    @gen.coroutine
+    def insert_key_value_pair(self, key, value):
+        db = self.settings['db']['glympse_web_socket-clacina']
+        # need to see if it exists first
+        doc = yield db.glKeyStore.find_one({"key": key})
+        if doc is not None:
+            doc['value'] = value
+            result = yield db.glKeyStore.save(doc)
+        else:
+            result = yield db.glKeyStore.insert({'key': key, 'value': value})
+
+        if result is None:
+            self.write_message("error")
+        else:
+            clients[self.id].msg_count += 1
+            self.write_message("ok")
 
 
 class MainHandler(tornado.web.RequestHandler):
@@ -157,6 +158,7 @@ class MainHandler(tornado.web.RequestHandler):
         # self.render("index.html", messages=ChatSocketHandler.cache)
 
 
+# Web Page Request Handler for /connections
 class ConnectionsHandler(tornado.web.RequestHandler):
     def get(self):
         self.write("[")
@@ -175,18 +177,21 @@ class ConnectionsHandler(tornado.web.RequestHandler):
         self.write("]")
         self.finish()
 
-db = motor.motor_tornado.MotorClient(
+# configure the database connection
+db_connection = motor.motor_tornado.MotorClient(
     "mongodb://clacina:ptYpRKAqNvK7@ds023000.mlab.com:23000/glympse_web_socket-clacina")
 
+# configure our application handlers
 application = tornado.web.Application(
     [
         (r"/", MainHandler),
         (r"/connect", ChatSocketHandler),
         (r"/connections", ConnectionsHandler),
     ],
-    db=db
+    db=db_connection
 )
 
+# start our main loop
 tornado.options.parse_command_line()
 print('Listening on port ' + str(options.port))
 application.listen(options.port)
