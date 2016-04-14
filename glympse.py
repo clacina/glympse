@@ -29,11 +29,6 @@
 # ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR
 # OTHER DEALINGS IN THE SOFTWARE.
 #
-"""
-TO DO -
-Load database from options
-"""
-
 
 import logging
 import motor
@@ -51,6 +46,9 @@ from tornado import gen
 from tornado.options import define, options
 
 define("port", default=8888, help="run on the given port", type=int)
+define("mongodb-host", default="mongodb://clacina:ptYpRKAqNvK7@ds023000.mlab.com:23000/glympse_web_socket-clacina", help="Mongo DB Host")
+define("mongodb-database", default="glympse_web_socket-clacina", help="Mongo DB Database")
+define("mongodb-collection", default="glKeyStore", help="Mongo DB Collection")
 
 clients = dict()
 
@@ -96,8 +94,7 @@ class ChatSocketHandler(tornado.websocket.WebSocketHandler):
         self.write_message("hello")
 
     def on_close(self):
-        self.write_message("disconnected")
-        logging.info("disconnected")
+        logging.info(self.id + " disconnected")
         del clients[self.id]
 
     def on_message(self, message):
@@ -125,8 +122,8 @@ class ChatSocketHandler(tornado.websocket.WebSocketHandler):
 
     @gen.coroutine
     def find_key(self, key):
-        db = self.settings['db']['glympse_web_socket-clacina']
-        doc = yield db.glKeyStore.find_one({"key": key})
+        db = self.settings['db'][options.mongodb_database]
+        doc = yield db[options.mongodb_collection].find_one({"key": key})
         if doc is not None:
             self.write_message(doc['value'])
             clients[self.id].msg_count += 1
@@ -135,27 +132,20 @@ class ChatSocketHandler(tornado.websocket.WebSocketHandler):
 
     @gen.coroutine
     def insert_key_value_pair(self, key, value):
-        db = self.settings['db']['glympse_web_socket-clacina']
+        db = self.settings['db'][options.mongodb_database]
         # need to see if it exists first
-        doc = yield db.glKeyStore.find_one({"key": key})
+        doc = yield db[options.mongodb_collection].find_one({"key": key})
         if doc is not None:
             doc['value'] = value
-            result = yield db.glKeyStore.save(doc)
+            result = yield db[options.mongodb_collection].save(doc)
         else:
-            result = yield db.glKeyStore.insert({'key': key, 'value': value})
+            result = yield db[options.mongodb_collection].insert({'key': key, 'value': value})
 
         if result is None:
             self.write_message("error")
         else:
             clients[self.id].msg_count += 1
             self.write_message("ok")
-
-
-class MainHandler(tornado.web.RequestHandler):
-    def get(self):
-        self.write("Hello")
-        self.finish()
-        # self.render("index.html", messages=ChatSocketHandler.cache)
 
 
 # Web Page Request Handler for /connections
@@ -177,22 +167,22 @@ class ConnectionsHandler(tornado.web.RequestHandler):
         self.write("]")
         self.finish()
 
+
+# start our main loop
+tornado.options.parse_command_line()
+
 # configure the database connection
-db_connection = motor.motor_tornado.MotorClient(
-    "mongodb://clacina:ptYpRKAqNvK7@ds023000.mlab.com:23000/glympse_web_socket-clacina")
+db_connection = motor.motor_tornado.MotorClient(host=options.mongodb_host)
 
 # configure our application handlers
 application = tornado.web.Application(
     [
-        (r"/", MainHandler),
         (r"/connect", ChatSocketHandler),
         (r"/connections", ConnectionsHandler),
     ],
     db=db_connection
 )
 
-# start our main loop
-tornado.options.parse_command_line()
 print('Listening on port ' + str(options.port))
 application.listen(options.port)
 tornado.ioloop.IOLoop.instance().start()
