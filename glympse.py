@@ -32,10 +32,6 @@
 
 import logging
 import motor
-import tornado.escape
-import tornado.ioloop
-import tornado.options
-import tornado.web
 import tornado.websocket
 import random
 import string
@@ -45,6 +41,7 @@ from tornado import gen
 
 from tornado.options import define, options
 
+# Setup command line options
 define("port", default=8888, help="run on the given port", type=int)
 define("mongodb-host", default="mongodb://clacina:ptYpRKAqNvK7@ds023000.mlab.com:23000/glympse_web_socket-clacina", help="Mongo DB Host")
 define("mongodb-database", default="glympse_web_socket-clacina", help="Mongo DB Database")
@@ -59,19 +56,7 @@ def random_generator(size=6, chars=string.ascii_uppercase + string.digits):
     return ''.join(random.choice(chars) for x in range(size))
 
 
-class Application(tornado.web.Application):
-    def __init__(self):
-        handlers = [
-            (r"/", MainHandler),
-            (r"/connect", ChatSocketHandler),
-        ],
-        settings = dict(
-            cookie_secret=random_generator(),
-            xsrf_cookies=True,
-        )
-        tornado.web.Application.__init__(self, handlers, **settings)
-
-
+# simple class for client stats
 class ClientStat:
     def __init__(self, obj):
         self.start_time = current_milli_time()
@@ -104,14 +89,11 @@ class ChatSocketHandler(tornado.websocket.WebSocketHandler):
             self.write_message("Invalid Command")
         else:
             if msg[0].lower() == 'get':
-                del msg[0]
-                key = " ".join(msg)
+                key = " ".join(msg[1:])
                 self.find_key(key)
             elif msg[0].lower() == 'set':
-                del msg[0]      # delete 'set'
-                key = msg[0]    # pull 'key'
-                del msg[0]      # delete 'key'
-                value = " ".join(msg)     # join 'value'
+                key = msg[1]    # pull 'key'
+                value = " ".join(msg[2:])     # join 'value'
                 self.insert_key_value_pair(key, value)
             else:
                 output = "Unknown Command [" + msg[0] + "]"
@@ -142,7 +124,7 @@ class ChatSocketHandler(tornado.websocket.WebSocketHandler):
             result = yield db[options.mongodb_collection].insert({'key': key, 'value': value})
 
         if result is None:
-            self.write_message("error")
+            self.write_message("Error updating database")
         else:
             clients[self.id].msg_count += 1
             self.write_message("ok")
